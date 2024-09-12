@@ -1,0 +1,125 @@
+#include <SPI.h>
+#include <Wire.h>
+#include <PubSubClient.h>
+#include <WiFiNINA.h>
+
+// Define your WiFi credentials (replace with your network details)
+const char* ssid = "Note10+";
+const char* password = "tapur125";
+
+// Define MQTT broker details
+const char* mqtt_server = "broker.emqx.io";
+const int mqtt_port = 1883;
+const char* topic_publish = "SIT210/wave";
+const char* topic_subscribe = "SIT210/wave";
+
+// Define pins
+const int trigPin = 9;
+const int echoPin = 8;
+const int ledPin = 12; 
+
+// Define ultrasonic sensor variables
+long duration;
+int distance;
+
+// Define MQTT client
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// Your name for publishing
+const char* yourName = "TAPUR";
+
+void setup() {
+  Serial.begin(9600);
+
+  // Initialize ultrasonic sensor pins
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(ledPin, OUTPUT);
+
+  // Connect to WiFi network
+  Serial.print("Connecting to WiFi... ");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println(" connected");
+
+  // Connect to MQTT broker
+  client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(callback);
+  reconnectMQTT();
+}
+
+void loop() {
+
+  // Check for MQTT connection
+  if (!client.connected()) {
+    reconnectMQTT();
+    return;
+  }
+
+  // Send wave detection message
+  detectWave();
+  
+  // Receive messages
+  client.loop();
+  
+  // Additional delay to avoid overwhelming MQTT broker
+  delay(100);
+}
+
+
+void reconnectMQTT() {
+  Serial.print("Reconnecting to MQTT broker... ");
+  while (!client.connected()) {
+    if (client.connect("arduinoClient", yourName, "")) {
+      Serial.println("connected");
+      client.subscribe(topic_subscribe);
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
+void detectWave() {
+  // Send a pulse to the ultrasonic sensor
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  // Read the echo pulse duration
+  duration = pulseIn(echoPin, HIGH);
+
+  // Calculate distance
+  distance = duration * 0.034 / 2;
+
+  // Publish message if object detected
+  if (distance < 100) { // Modify distance threshold as needed
+    Serial.println("Wave detected!");
+    client.publish(topic_publish, yourName);
+
+  }
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  // Check if received message is on the subscribed topic
+  if (strncmp(topic, topic_subscribe, strlen(topic_subscribe)) == 0) {
+    Serial.print("Received message: ");
+    Serial.println((char*)payload);
+    
+    // Flash LED 3 times
+    for (int i = 0; i < 100; i++) {
+      digitalWrite(ledPin, HIGH);
+      delay(250);
+      digitalWrite(ledPin, LOW);
+      delay(250);
+    }
+  }
+}
